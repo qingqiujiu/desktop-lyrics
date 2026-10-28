@@ -12,9 +12,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
@@ -67,6 +64,10 @@ class MainActivity : AppCompatActivity() {
     private var availableRelease: UpdateChecker.Release? = null
     private var settingsTargetIsCompact = false
     private var overlayStateReceiverRegistered = false
+    private lateinit var compactLock: androidx.appcompat.widget.SwitchCompat
+    private lateinit var compactLineOptions: List<Pair<TextView, String>>
+    private lateinit var compactSecondaryOptions: List<Pair<TextView, String>>
+    private var refreshingCompactOptions = false
 
     private val overlayStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -74,6 +75,7 @@ class MainActivity : AppCompatActivity() {
                 ::tvOverlayStatus.isInitialized
             ) {
                 updateOverlayUi()
+                updateCompactOptionsUi()
             }
         }
     }
@@ -81,6 +83,38 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        compactLock = findViewById(R.id.compact_lock)
+        compactLineOptions = listOf(
+            findViewById<TextView>(R.id.compact_lines_auto) to CompactOverlayOptions.AUTO,
+            findViewById<TextView>(R.id.compact_lines_single) to CompactOverlayOptions.SINGLE,
+            findViewById<TextView>(R.id.compact_lines_double) to CompactOverlayOptions.DOUBLE
+        )
+        compactSecondaryOptions = listOf(
+            findViewById<TextView>(R.id.compact_secondary_translation) to CompactOverlayOptions.TRANSLATION,
+            findViewById<TextView>(R.id.compact_secondary_next) to CompactOverlayOptions.NEXT_LINE
+        )
+        compactLock.setOnCheckedChangeListener { _, checked ->
+            if (!refreshingCompactOptions) {
+                overlayPrefs.edit().putBoolean(LyricsOverlayService.PREF_COMPACT_LOCKED, checked).apply()
+                refreshCompactOptions()
+            }
+        }
+        compactLineOptions.forEach { (view, mode) -> view.setOnClickListener {
+            overlayPrefs.edit().putString(LyricsOverlayService.PREF_COMPACT_LINES, mode).apply()
+            val percent = overlayPrefs.getInt(LyricsOverlayService.PREF_FONT_SCALE_COMPACT_PERCENT, expandedFontScale())
+            val minimum = (LyricsOverlayService.compactMinimumHeightDp(percent, mode) * resources.displayMetrics.density + .5f).toInt()
+            if (overlayPrefs.getInt("compact_height_v3", 0) < minimum) {
+                overlayPrefs.edit().putInt("compact_height_v3", minimum).apply()
+            }
+            updateCompactOptionsUi()
+            refreshCompactOptions()
+        } }
+        compactSecondaryOptions.forEach { (view, mode) -> view.setOnClickListener {
+            overlayPrefs.edit().putString(LyricsOverlayService.PREF_COMPACT_SECONDARY, mode).apply()
+            updateCompactOptionsUi()
+            refreshCompactOptions()
+        } }
+        updateCompactOptionsUi()
         findViewById<Button>(R.id.btn_manage_lyric_sources).setOnClickListener {
             startActivity(Intent(this, LyricSourceManagerActivity::class.java))
         }
@@ -307,6 +341,7 @@ class MainActivity : AppCompatActivity() {
         if (::tvOverlayStatus.isInitialized) {
             updateOverlayUi()
             updateBackgroundModeUi()
+            updateCompactOptionsUi()
             updateReadingOptionsUi()
             updateFontSizeUi()
             updateLyricOffsetUi()
@@ -365,7 +400,8 @@ class MainActivity : AppCompatActivity() {
         if (settingsTargetIsCompact) {
             val density = resources.displayMetrics.density
             fun minHeightPx(value: Int): Int =
-                (LyricsOverlayService.compactMinimumHeightDp(value) * density + 0.5f).toInt()
+                (LyricsOverlayService.compactMinimumHeightDp(value,
+                    CompactOverlayOptions.lineMode(overlayPrefs.getString(LyricsOverlayService.PREF_COMPACT_LINES, null))) * density + 0.5f).toInt()
             val storedHeight = overlayPrefs.getInt("compact_height_v3", (48 * density + 0.5f).toInt())
             val previousMin = minHeightPx(previous)
             val nextMin = minHeightPx(normalized)
@@ -424,7 +460,7 @@ class MainActivity : AppCompatActivity() {
                 if (selected) R.drawable.bg_ui_segment_selected else android.R.color.transparent
             )
             option.setTextColor(
-                android.graphics.Color.parseColor(if (selected) "#202331" else "#9DA4B5")
+                if (selected) accentColor else textSecondary
             )
             option.typeface = android.graphics.Typeface.create(
                 "sans-serif",
@@ -523,31 +559,32 @@ class MainActivity : AppCompatActivity() {
                 if (isSelected) R.drawable.bg_ui_segment_selected else android.R.color.transparent
             )
             option.setTextColor(
-                Color.parseColor(
-                    if (isSelected) "#202331"
-                    else if (color == "#111111") "#AEB3BF"
-                    else color
-                )
+                if (isSelected) accentColor else textPrimary
             )
-            option.alpha = if (isSelected) 1f else 0.62f
+            option.alpha = 1f
+            option.isSelected = isSelected
+            option.setCompoundDrawablesRelative(colorSwatch(Color.parseColor(color)), null, null, null)
+            option.compoundDrawablePadding = (4 * resources.displayMetrics.density).toInt()
         }
         val normalized = selected.uppercase(java.util.Locale.ROOT)
         val isCustom = options.none { (_, color) -> color == normalized }
         val customLabel = "无级调色 · $normalized"
-        lyricColorCustom.text = SpannableString(customLabel).apply {
-            val valueStart = customLabel.lastIndexOf(normalized)
-            val actualColor = runCatching { Color.parseColor(normalized) }.getOrDefault(Color.WHITE)
-            setSpan(
-                ForegroundColorSpan(actualColor),
-                valueStart,
-                customLabel.length,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
+        lyricColorCustom.text = customLabel
+        lyricColorCustom.setCompoundDrawablesRelative(colorSwatch(
+            runCatching { Color.parseColor(normalized) }.getOrDefault(Color.WHITE)), null, null, null)
+        lyricColorCustom.compoundDrawablePadding = (8 * resources.displayMetrics.density).toInt()
         lyricColorCustom.setBackgroundResource(
             if (isCustom) R.drawable.bg_ui_segment_selected else R.drawable.bg_ui_pill
         )
-        lyricColorCustom.setTextColor(Color.parseColor("#F7F7FA"))
+        lyricColorCustom.setTextColor(textPrimary)
+    }
+
+    private fun colorSwatch(color: Int) = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(color)
+        setStroke(maxOf(1, resources.displayMetrics.density.toInt()), getColor(R.color.text_hint))
+        val size = (10 * resources.displayMetrics.density + .5f).toInt()
+        setBounds(0, 0, size, size)
     }
 
     private fun showColorPickerDialog() {
@@ -584,7 +621,7 @@ class MainActivity : AppCompatActivity() {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 18f * resources.displayMetrics.density
                 setColor(Color.rgb(r, g, b))
-                setStroke((resources.displayMetrics.density + .5f).toInt(), Color.parseColor("#33FFFFFF"))
+                setStroke((resources.displayMetrics.density + .5f).toInt(), getColor(R.color.surface_border))
             }
         }
 
@@ -624,11 +661,12 @@ class MainActivity : AppCompatActivity() {
     private fun updateSegmentOptions(options: List<Pair<TextView, String>>, selected: String) {
         options.forEach { (option, value) ->
             val isSelected = value == selected
+            option.isSelected = isSelected
             option.setBackgroundResource(
                 if (isSelected) R.drawable.bg_ui_segment_selected else android.R.color.transparent
             )
             option.setTextColor(
-                android.graphics.Color.parseColor(if (isSelected) "#202331" else "#9DA4B5")
+                if (isSelected) accentColor else textSecondary
             )
             option.typeface = android.graphics.Typeface.create(
                 "sans-serif",
@@ -682,6 +720,24 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun updateCompactOptionsUi() {
+        refreshingCompactOptions = true
+        compactLock.isChecked = overlayPrefs.getBoolean(LyricsOverlayService.PREF_COMPACT_LOCKED, false)
+        refreshingCompactOptions = false
+        val mode = CompactOverlayOptions.lineMode(overlayPrefs.getString(LyricsOverlayService.PREF_COMPACT_LINES, null))
+        updateSegmentOptions(compactLineOptions, mode)
+        findViewById<View>(R.id.compact_secondary_group).visibility =
+            if (mode == CompactOverlayOptions.DOUBLE) View.VISIBLE else View.GONE
+        updateSegmentOptions(compactSecondaryOptions,
+            CompactOverlayOptions.secondaryMode(overlayPrefs.getString(LyricsOverlayService.PREF_COMPACT_SECONDARY, null)))
+    }
+
+    private fun refreshCompactOptions() {
+        if (LyricsOverlayService.isRunning) startService(Intent(this, LyricsOverlayService::class.java).apply {
+            action = LyricsOverlayService.ACTION_SET_COMPACT_OPTIONS
+        })
+    }
+
     private fun backgroundPreferenceKey(): String = if (settingsTargetIsCompact) {
         LyricsOverlayService.PREF_BACKGROUND_MODE_COMPACT
     } else LyricsOverlayService.PREF_BACKGROUND_MODE
@@ -719,7 +775,7 @@ class MainActivity : AppCompatActivity() {
         btnOverlayPermission.text = if (overlayGranted) "✓ 悬浮窗权限" else "悬浮窗权限"
         btnOverlay.text = if (running) "关闭歌词悬浮窗" else "开启歌词悬浮窗"
         btnOverlay.backgroundTintList = android.content.res.ColorStateList.valueOf(
-            android.graphics.Color.parseColor(if (running) "#C92842" else "#FA2D48")
+            getColor(if (running) R.color.accent_border else R.color.accent_surface)
         )
 
         val permissionsReady = listenerGranted && overlayGranted
@@ -731,18 +787,18 @@ class MainActivity : AppCompatActivity() {
         tvRuntimeBadge.setTextColor(
             android.graphics.Color.parseColor(
                 when {
-                    running -> "#FF7388"
-                    permissionsReady -> "#B8B8BE"
-                    else -> "#FF9DAA"
+                    running -> "#26765C"
+                    permissionsReady -> "#606979"
+                    else -> "#B73D56"
                 }
             )
         )
         tvRuntimeBadge.backgroundTintList = android.content.res.ColorStateList.valueOf(
             android.graphics.Color.parseColor(
                 when {
-                    running -> "#264F1721"
-                    permissionsReady -> "#262F2F34"
-                    else -> "#263A151C"
+                    running -> "#E4F3EC"
+                    permissionsReady -> "#F0F2F5"
+                    else -> "#FBE7EC"
                 }
             )
         )

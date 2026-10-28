@@ -57,13 +57,13 @@ class LyricOffsetMemoryActivity : AppCompatActivity() {
         content.addView(TextView(this).apply {
             text = "‹  偏移记忆"
             textSize = 25f
-            setTextColor(Color.WHITE)
+            setTextColor(textPrimary)
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(2), dp(8), 0, dp(10))
             setOnClickListener { finish() }
         })
         content.addView(text("每首歌、每个歌词源独立保存。删除后再次播放会恢复为 +0.0s。", 12f).apply {
-            setTextColor(Color.rgb(144, 151, 169))
+            setTextColor(textSecondary)
             setPadding(dp(2), 0, 0, dp(4))
         })
 
@@ -73,22 +73,22 @@ class LyricOffsetMemoryActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 addView(text("还没有自定义偏移记忆", 15f).apply {
                     gravity = Gravity.CENTER
-                    setTextColor(Color.rgb(170, 177, 194))
+                    setTextColor(textSecondary)
                 })
             })
             return
         }
 
         content.addView(button("重置全部偏移记忆") { showClearDialog() }.apply {
-            setTextColor(Color.rgb(255, 176, 184))
+            setTextColor(accentColor)
         })
         entries.forEach { entry ->
             val panel = card()
             panel.addView(text(entry.title.ifBlank { "未知歌曲" }, 17f).apply {
-                setTextColor(Color.WHITE)
+                setTextColor(textPrimary)
             })
             if (entry.artist.isNotBlank()) panel.addView(text(entry.artist, 12f).apply {
-                setTextColor(Color.rgb(150, 158, 177)); setPadding(0, 2, 0, 0)
+                setTextColor(textSecondary); setPadding(0, 2, 0, 0)
             })
             val detail = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -96,14 +96,14 @@ class LyricOffsetMemoryActivity : AppCompatActivity() {
                 setPadding(0, dp(8), 0, 0)
             }
             detail.addView(text(entry.source.ifBlank { "歌词源" }, 12f).apply {
-                setTextColor(Color.WHITE)
+                setTextColor(textPrimary)
             }, LinearLayout.LayoutParams(0, -2, 1f))
             detail.addView(text(formatOffset(entry.offsetMs), 14f).apply {
-                setTextColor(Color.WHITE)
+                setTextColor(textPrimary)
             })
             panel.addView(detail)
             panel.addView(button("删除这条记忆") { delete(entry) }.apply {
-                setTextColor(Color.rgb(255, 184, 190))
+                setTextColor(accentColor)
             })
             content.addView(panel)
         }
@@ -166,9 +166,9 @@ class LyricOffsetMemoryActivity : AppCompatActivity() {
     private fun showClearDialog() {
         val dialog = Dialog(this)
         val panel = card().apply {
-            addView(text("重置全部偏移？", 20f).apply { setTextColor(Color.WHITE) })
+            addView(text("重置全部偏移？", 20f).apply { setTextColor(textPrimary) })
             addView(text("所有歌曲和歌词源都会恢复为 +0.0s。", 12f).apply {
-                setTextColor(Color.rgb(158, 165, 182)); setPadding(0, 4, 0, 8)
+                setTextColor(textSecondary); setPadding(0, 4, 0, 8)
             })
             addView(button("确认重置") { dialog.dismiss(); clearAll() }.apply {
                 setBackgroundResource(R.drawable.bg_ui_primary_button)
@@ -203,7 +203,7 @@ class LyricOffsetMemoryActivity : AppCompatActivity() {
     private fun button(value: String, action: () -> Unit) = Button(this).apply {
         text = value
         isAllCaps = false
-        setTextColor(Color.WHITE)
+        setTextColor(textPrimary)
         setBackgroundResource(R.drawable.bg_ui_pill)
         stateListAnimator = null
         layoutParams = LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(8) }

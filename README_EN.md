@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="app/src/main/res/drawable-nodpi/ic_launcher_art.png" width="104" alt="Desktop Lyrics app icon">
+  <img src="docs/assets/icon-light.png" width="104" alt="Desktop Lyrics app icon">
 
 # Desktop Lyrics for Android
 
@@ -47,7 +47,9 @@ Watch on Bilibili: [Desktop Lyrics for Android — Apple Music / Spotify real-ti
 - Tries multiple candidates, rejects empty, title-only, credit-only, and provider-placeholder lyrics, supports symbol-only titles and cross-script aliases, and allows up to 10 seconds on slow networks
 - Tap the source pill to cycle providers, double-tap to rematch the current provider and remember the selected recording, or long-press to restore automatic matching; a failed rematch keeps the current lyrics
 - Manage remembered lyric choices by song, search the history, preview QQ Music, NetEase, and LRCLIB versions, choose a result, restore the initial match, or clear the complete matching cache
-- Refined settings layout with a pure-black background and red accent, a separate dynamic-background card, stacked font-size and timing-offset controls, and side-by-side source/offset managers
+- Light settings theme with white cards, a soft gray background and muted rose accents, including translation, lyric source, timing offset and dialog screens
+- Lock the compact overlay from inside the app to pass touches through to the app underneath; unlock in settings or from the notification
+- Choose automatic, single-row or double-row compact lyrics; two rows can show original + translation or current + next line, with next-line fallback when no translation is available and font-aware minimum sizing
 - Expanded and compact modes remember independent lyric size, color, dynamic background, window geometry, and position; full-screen lyrics use the expanded appearance
 - A lightweight GitHub Releases check runs at most once per day when opening settings; update prompts can be postponed or ignored for that release, and a manual check remains available
 
