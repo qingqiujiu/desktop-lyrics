@@ -2,7 +2,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const html=fs.readFileSync('app/src/main/assets/lyrics_overlay.html','utf8');
-const context={translationMode:'bilingual',pronunciationEnabled:false};
+const context={translationMode:'bilingual',pronunciationEnabled:false,compactLineMode:'auto',compactSecondaryMode:'translation'};
 vm.createContext(context);
 vm.runInContext(html.slice(html.indexOf('    const escapeHtml ='),html.indexOf('    function formatTime(')),context);
 vm.runInContext(html.slice(html.indexOf('    function parseLrc('),html.indexOf('    function renderLyrics(')),context);
@@ -30,4 +30,22 @@ assert.equal(context.compactSupplement(aligned[0]),'');
 context.pronunciationEnabled=true;
 assert.match(context.lineHtml({text:'君',pronunciation:'<img src=x onerror=alert(1)>'}),/&lt;img/);
 assert.ok(!context.lineHtml({text:'君',pronunciation:'<img src=x onerror=alert(1)>'}).includes('<img'));
+context.compactLineMode='double';
+context.compactSecondaryMode='translation';
+// Explicit compact bilingual rows override the expanded-only language preference.
+for(const mode of ['original','bilingual','translated']){
+  context.translationMode=mode;
+  assert.equal(context.compactPrimaryText(aligned[0]),'君のとなり');
+  assert.equal(context.compactSupplement(aligned[0]),'在你身旁');
+  assert.equal(context.compactUsesWords(),true,'explicit bilingual compact mode preserves word highlighting');
+}
+context.compactSecondaryMode='next';
+assert.equal(context.compactSupplement(aligned[0]),'');
+context.translationMode='translated';
+assert.equal(context.compactPrimaryText(aligned[0]),'在你身旁');
+context.compactSecondaryMode='translation';
+assert.equal(context.compactSupplement(lines[0]),'','missing translations fall back to the next lyric');
+context.compactLineMode='auto';
+context.translationMode='original';
+assert.equal(context.compactSupplement(aligned[0]),'','automatic mode retains existing behavior');
 console.log('PASS: aligned readings, missing data, independent translation modes, compact supplements, HTML escaping');

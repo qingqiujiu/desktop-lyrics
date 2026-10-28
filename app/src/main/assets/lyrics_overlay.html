@@ -329,6 +329,7 @@
     body.background-low .shade { backdrop-filter:none; -webkit-backdrop-filter:none; }
     body.background-low .surface { backdrop-filter:none; -webkit-backdrop-filter:none; }
     body.compact #app { padding:0 14px 0 0; }
+    body.compact.compact-locked #app { padding-right:0; }
     body.compact .surface {
       border:0; border-radius:0; box-shadow:none; background:transparent;
       backdrop-filter:none; -webkit-backdrop-filter:none;
@@ -475,6 +476,8 @@
     let lyricFontScale=1;
     let translationMode='bilingual';
     let pronunciationEnabled=false;
+    let compactLineMode='auto';
+    let compactSecondaryMode='translation';
     const playback = {
       hasSession:false, track:'', artist:'', album:'', state:'paused', positionMs:0,
       durationMs:0, speed:0, receivedAt:performance.now(), key:'', lyrics:[], active:-1,
@@ -668,7 +671,16 @@
     }
 
     function compactSupplement(line) {
+      if(compactLineMode==='double')return compactSecondaryMode==='translation'?line.translation||'':'';
       return translationMode==='bilingual' ? line.translation||'' : '';
+    }
+
+    function compactPrimaryText(line) {
+      return compactLineMode==='double'&&compactSecondaryMode==='translation'?line.text:linePrimaryText(line);
+    }
+
+    function compactUsesWords() {
+      return translationMode!=='translated'||compactLineMode==='double'&&compactSecondaryMode==='translation';
     }
 
     function linePrimaryText(line) {
@@ -739,7 +751,7 @@
       setCompactTiming(viewport, delay, timeBudget);
       const content = document.createElement('span');
       content.className = 'compact-scroll-text';
-      if(translationMode!=='translated'&&timedLine&&Array.isArray(timedLine.words)&&timedLine.words.length){
+      if(compactUsesWords()&&timedLine&&Array.isArray(timedLine.words)&&timedLine.words.length){
         viewport.dataset.wordTimed='1';
         timedLine.words.forEach((word,index)=>{
           const span=document.createElement('span');
@@ -797,7 +809,7 @@
     function setCompactLyric(text, animate, followingText, currentTimeBudget, timedLine, secondaryIsTranslation) {
       const value = String(text || '暂无歌词');
       const following = String(followingText || '').trim();
-      const reading=pronunciationEnabled&&timedLine?String(timedLine.pronunciation||'').trim():'';
+      const reading=compactLineMode==='auto'&&pronunciationEnabled&&timedLine?String(timedLine.pronunciation||'').trim():'';
       const timingKey=timedLine&&Array.isArray(timedLine.words)&&timedLine.words.length?String(timedLine.t):'';
       const key = value + '\u0000' + following + '\u0000' + reading + '\u0000' + timingKey +
         '\u0000' + (secondaryIsTranslation?'translation':'candidate');
@@ -932,9 +944,9 @@
       const supplement=compactSupplement(line);
       const hasTranslation=!!supplement;
       setCompactLyric(
-        linePrimaryText(line),
+        compactPrimaryText(line),
         document.body.classList.contains('compact'),
-        hasTranslation?supplement:(playback.lyrics[index+1]?linePrimaryText(playback.lyrics[index+1]):''),
+        hasTranslation?supplement:(playback.lyrics[index+1]?compactPrimaryText(playback.lyrics[index+1]):''),
         lineBudget,
         line,
         hasTranslation
@@ -1160,9 +1172,9 @@
         const compactHasTranslation=!!supplement;
         const compactSecondary=compactHasTranslation
           ? supplement
-          : (lines[index + 1] ? linePrimaryText(lines[index + 1]) : '');
+          : (lines[index + 1] ? compactPrimaryText(lines[index + 1]) : '');
         setCompactLyric(
-          linePrimaryText(lines[index]),
+          compactPrimaryText(lines[index]),
           !force && document.body.classList.contains('compact'),
           compactSecondary,
           currentTimeBudget,
@@ -1174,11 +1186,12 @@
 
     function updateWordProgress(position) {
       const line=playback.lyrics[playback.active];
-      if(!line||!Array.isArray(line.words)||translationMode==='translated')return;
+      if(!line||!Array.isArray(line.words))return;
       if(document.body.classList.contains('compact')){
-        updateCompactWordProgress(line,position);
+        if(compactUsesWords())updateCompactWordProgress(line,position);
         return;
       }
+      if(translationMode==='translated')return;
       const node=ui.lyrics.children[playback.active];
       if(!node)return;
       const spans=node.querySelectorAll('.word');
@@ -1932,8 +1945,8 @@
       // Preserve 1.07's one/two-line height boundary and add a third auxiliary row.
       const twoLineMinimum=Math.ceil(7+(30*1.15+23*1.15)*lyricFontScale);
       const compact=document.body.classList.contains('compact');
-      document.body.classList.toggle('compact-two',compact&&innerHeight>=twoLineMinimum);
-      document.body.classList.toggle('compact-three',compact&&pronunciationEnabled&&!!line?.classList.contains('has-pronunciation')&&innerHeight>=Math.ceil(7+(30*1.15+23*1.15+smallLine)*lyricFontScale));
+      document.body.classList.toggle('compact-two',compact&&(compactLineMode==='double'||compactLineMode==='auto'&&innerHeight>=twoLineMinimum));
+      document.body.classList.toggle('compact-three',compact&&compactLineMode==='auto'&&pronunciationEnabled&&!!line?.classList.contains('has-pronunciation')&&innerHeight>=Math.ceil(7+(30*1.15+23*1.15+smallLine)*lyricFontScale));
     }
 
     function setFontScale(percent) {
@@ -1964,6 +1977,17 @@
       receiveLyrics,
       receiveRemoteCover,
       setFontScale,
+      setCompactOptions(lines,secondary) {
+        const nextLines=['single','double'].includes(lines)?lines:'auto';
+        const nextSecondary=secondary==='next'?'next':'translation';
+        if(nextLines===compactLineMode&&nextSecondary===compactSecondaryMode)return;
+        compactLineMode=nextLines;
+        compactSecondaryMode=nextSecondary;
+        compactLineKey='';
+        updateActiveLine(lyricPosition(),true);
+        updateCompactLayout();
+        updateWordProgress(lyricPosition());
+      },
       setPronunciationEnabled(value) {
         const next=!!value;
         if(next===pronunciationEnabled)return;

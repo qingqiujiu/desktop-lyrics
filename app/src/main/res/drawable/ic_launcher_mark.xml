@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Two lyric lines inside the adaptive icon safe zone. -->
+    <path android:fillColor="#D9687C" android:pathData="M35,40h38a4,4 0,0 1,0 8H35a4,4 0,0 1,0 -8Z" />
+    <path android:fillColor="#BFC5CF" android:pathData="M35,60h26a4,4 0,0 1,0 8H35a4,4 0,0 1,0 -8Z" />
+    <path android:fillColor="#E6A7B2" android:pathData="M75,60a4,4 0,1 1,0 8a4,4 0,1 1,0 -8Z" />
+</vector>

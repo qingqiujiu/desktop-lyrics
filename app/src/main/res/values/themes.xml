@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.DesktopLyrics" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.DesktopLyrics.Base" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#090909</item>
-        <item name="android:navigationBarColor">#090909</item>
-        <item name="android:colorAccent">#FA2D48</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/screen_background</item>
+        <!-- Android 8.0 only supports white navigation icons. -->
+        <item name="android:navigationBarColor">@color/text_primary</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/screen_background</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+        <item name="android:colorControlNormal">@color/text_secondary</item>
     </style>
+    <style name="Theme.DesktopLyrics.Navigation" parent="Theme.DesktopLyrics.Base" />
+    <style name="Theme.DesktopLyrics" parent="Theme.DesktopLyrics.Navigation" />
 </resources>

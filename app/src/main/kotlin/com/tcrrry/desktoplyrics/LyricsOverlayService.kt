@@ -97,6 +97,7 @@ class LyricsOverlayService : Service() {
     }
 
     private fun revealCompactControls(scheduleHide: Boolean = true) {
+        if (isCompactLocked()) return
         mainHandler.removeCallbacks(hideCompactControls)
         chromeBar?.animate()?.cancel()
         chromeBar?.visibility = View.VISIBLE
@@ -197,6 +198,18 @@ class LyricsOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_UNLOCK_COMPACT || intent?.action == ACTION_SET_COMPACT_OPTIONS) {
+            if (intent?.action == ACTION_UNLOCK_COMPACT) {
+                prefs.edit().putBoolean(PREF_COMPACT_LOCKED, false).apply()
+            }
+            if (overlayRoot == null) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            applyCompactOptions()
+            announceOverlayState()
+            return START_STICKY
+        }
         if (intent?.action == "com.tcrrry.desktoplyrics.REFRESH_MATCHES") {
             webView?.evaluateJavascript("window.LobstaOverlay?.refreshMatchManagement();", null)
             return START_STICKY
@@ -632,11 +645,21 @@ class LyricsOverlayService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("${getString(R.string.app_name)} 正在监听")
-            .setContentText("本地实时同步当前媒体会话")
+            .setContentText(if (isCompactLocked()) "收起态已锁定，触摸会透传到下方应用" else "本地实时同步当前媒体会话")
             .setContentIntent(openPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .apply {
+                if (isCompactLocked()) {
+                    val unlock = PendingIntent.getService(
+                        this@LyricsOverlayService, 2,
+                        Intent(this@LyricsOverlayService, LyricsOverlayService::class.java).setAction(ACTION_UNLOCK_COMPACT),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    addAction(0, "解锁收起态", unlock)
+                }
+            }
             .addAction(0, "关闭悬浮窗", stopPendingIntent)
             .build()
 
@@ -680,7 +703,7 @@ class LyricsOverlayService : Service() {
         val wasCompact = prefs.getBoolean("compact", false)
         val storedNormalHeight = prefs.getInt("height", dp(520))
         syncActiveVisualPreferences(wasCompact)
-        val compactMinimumHeight = dp(compactMinimumHeightDp(compactFontScalePercent))
+        val compactMinimumHeight = dp(compactMinimumHeightDp(compactFontScalePercent, compactLineMode()))
         val storedCompactHeight = prefs.getInt("compact_height_v3", max(dp(48), compactMinimumHeight))
         val activeStoredHeight = if (wasCompact) storedCompactHeight else storedNormalHeight
         compact = activeStoredHeight <= dp(COMPACT_MAX_HEIGHT_DP)
@@ -845,6 +868,7 @@ class LyricsOverlayService : Service() {
             var downY = 0
 
             override fun onTouch(view: View, event: MotionEvent): Boolean {
+                if (isCompactLocked()) return true
                 val lp = windowParams ?: return false
                 if (compact) {
                     if (event.actionMasked == MotionEvent.ACTION_DOWN) revealCompactControls(false)
@@ -916,6 +940,7 @@ class LyricsOverlayService : Service() {
                         pendingLongPress = Runnable {
                             singleTap?.let(mainHandler::removeCallbacks)
                             singleTap = null
+                            if (isCompactLocked()) return@Runnable
                             resizing = true
                             view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         }.also {
@@ -935,7 +960,7 @@ class LyricsOverlayService : Service() {
                         if (overlayRotated) {
                             // The logical top/right resize corner becomes the physical
                             // bottom/right corner after the whole canvas turns clockwise.
-                            val minimumPhysicalWidth = dp(compactMinimumHeightDp(fontScalePercent))
+                            val minimumPhysicalWidth = dp(compactMinimumHeightDp(fontScalePercent, compactLineMode()))
                             val minimumPhysicalHeight = minimumOverlayWidth(safe.height())
                             val maximumPhysicalWidth = max(minimumPhysicalWidth, safe.right - downX)
                             val maximumPhysicalHeight = max(minimumPhysicalHeight, safe.bottom - downY)
@@ -951,7 +976,7 @@ class LyricsOverlayService : Service() {
                             lp.width = (downWidth + deltaX).toInt()
                                 .coerceIn(minimumWidth, availableWidth)
                             val bottomEdge = downY + downHeight
-                            val minimumHeight = dp(compactMinimumHeightDp(fontScalePercent))
+                            val minimumHeight = dp(compactMinimumHeightDp(fontScalePercent, compactLineMode()))
                             val maximumHeight = max(minimumHeight, bottomEdge - safe.top)
                             lp.height = (downHeight - deltaY).toInt()
                                 .coerceIn(minimumHeight, maximumHeight)
@@ -1051,6 +1076,7 @@ class LyricsOverlayService : Service() {
         updateControlLayout(compact)
 
         windowManager.addView(root, params)
+        applyCompactLock()
     }
 
     fun attachFullscreen(host: FrameLayout): Boolean {
@@ -1192,7 +1218,7 @@ class LyricsOverlayService : Service() {
         val minWidth = minimumOverlayWidth(screenWidth).coerceAtMost(maxWidth)
         val maxHeight = max(1, screenHeight - dp(DISPLAY_EDGE_MARGIN_DP))
         val requestedMinHeight = if (isCompact) {
-            dp(compactMinimumHeightDp(fontScalePercent))
+            dp(compactMinimumHeightDp(fontScalePercent, compactLineMode()))
         } else {
             dp(COMPACT_MAX_HEIGHT_DP + 1)
         }
@@ -1416,6 +1442,7 @@ class LyricsOverlayService : Service() {
         applyFontScale(previousFontScalePercent, adjustCompactHeight = false)
         applyLyricColor()
         applyBackgroundMode()
+        applyCompactLock()
     }
 
     private fun applyReadingOptions() {
@@ -1423,8 +1450,50 @@ class LyricsOverlayService : Service() {
         val pronunciation = prefs.getBoolean(PREF_PRONUNCIATION_ENABLED, false)
         webView?.evaluateJavascript(
             "window.LobstaOverlay && (window.LobstaOverlay.setLyricStroke($stroke), " +
-                "window.LobstaOverlay.setPronunciationEnabled($pronunciation));", null
+                "window.LobstaOverlay.setPronunciationEnabled($pronunciation), " +
+                "window.LobstaOverlay.setCompactOptions(${JSONObject.quote(compactLineMode())}, " +
+                "${JSONObject.quote(CompactOverlayOptions.secondaryMode(prefs.getString(PREF_COMPACT_SECONDARY, null)))}), " +
+                "document.body.classList.toggle('compact-locked', ${isCompactLocked()}));", null
         )
+    }
+
+    private fun compactLineMode(): String = CompactOverlayOptions.lineMode(prefs.getString(PREF_COMPACT_LINES, null))
+
+    private fun isCompactLocked(): Boolean = compact && prefs.getBoolean(PREF_COMPACT_LOCKED, false)
+
+    private fun applyCompactLock() {
+        val root = overlayRoot ?: return
+        val lp = windowParams ?: return
+        val locked = isCompactLocked()
+        lp.flags = if (locked) lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            else lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        // Android 12+ blocks untrusted overlay touches above the system opacity limit.
+        lp.alpha = if (locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(android.hardware.input.InputManager::class.java)
+                .maximumObscuringOpacityForTouch.coerceIn(0f, 0.8f)
+        } else 1f
+        mainHandler.removeCallbacks(hideCompactControls)
+        chromeBar?.animate()?.cancel()
+        if (locked) {
+            singleTap?.let(mainHandler::removeCallbacks)
+            singleTap = null
+            chromeBar?.visibility = View.INVISIBLE
+        } else {
+            revealCompactControls()
+        }
+        webView?.evaluateJavascript("document.body.classList.toggle('compact-locked', $locked);", null)
+        windowManager.updateViewLayout(root, lp)
+        startAsForeground()
+    }
+
+    private fun applyCompactOptions() {
+        // Fit the saved compact geometry even when settings are changed while expanded.
+        val minimum = dp(compactMinimumHeightDp(compactFontScalePercent, compactLineMode()))
+        val stored = prefs.getInt("compact_height_v3", dp(48))
+        if (stored < minimum) prefs.edit().putInt("compact_height_v3", minimum).apply()
+        if (compact && fullscreenHost == null) adaptOverlayToDisplay()
+        applyReadingOptions()
+        applyCompactLock()
     }
 
     private fun syncActiveVisualPreferences(targetCompact: Boolean) {
@@ -1455,8 +1524,8 @@ class LyricsOverlayService : Service() {
 
         val lp = windowParams ?: return
         val logicalSize = windowToLogicalSize(lp.width, lp.height, overlayRotated)
-        val previousMinimum = dp(compactMinimumHeightDp(previousPercent))
-        val nextMinimum = dp(compactMinimumHeightDp(fontScalePercent))
+        val previousMinimum = dp(compactMinimumHeightDp(previousPercent, compactLineMode()))
+        val nextMinimum = dp(compactMinimumHeightDp(fontScalePercent, compactLineMode()))
         val wasAtMinimum = logicalSize.second <= previousMinimum + dp(2)
         val nextLogicalHeight = if (wasAtMinimum) {
             nextMinimum
@@ -1934,6 +2003,11 @@ class LyricsOverlayService : Service() {
         const val ACTION_CLEAR_LYRIC_OFFSET_MEMORIES = "com.tcrrry.desktoplyrics.action.CLEAR_LYRIC_OFFSET_MEMORIES"
         const val ACTION_DELETE_LYRIC_OFFSET_MEMORY = "com.tcrrry.desktoplyrics.action.DELETE_LYRIC_OFFSET_MEMORY"
         const val ACTION_SET_TRANSLATION_MODE = "com.tcrrry.desktoplyrics.action.SET_TRANSLATION_MODE"
+        const val ACTION_SET_COMPACT_OPTIONS = "com.tcrrry.desktoplyrics.action.SET_COMPACT_OPTIONS"
+        const val ACTION_UNLOCK_COMPACT = "com.tcrrry.desktoplyrics.action.UNLOCK_COMPACT"
+        const val PREF_COMPACT_LOCKED = "compact_locked_v1"
+        const val PREF_COMPACT_LINES = "compact_lines_v1"
+        const val PREF_COMPACT_SECONDARY = "compact_secondary_v1"
         const val EXTRA_BACKGROUND_MODE = "background_mode"
         const val EXTRA_FONT_SCALE_PERCENT = "font_scale_percent"
         const val EXTRA_LYRIC_COLOR = "lyric_color"
@@ -1978,10 +2052,8 @@ class LyricsOverlayService : Service() {
         const val TRANSLATION_BILINGUAL = "bilingual"
         const val TRANSLATION_TRANSLATED = "translated"
 
-        fun compactMinimumHeightDp(percent: Int): Int {
-            val scale = percent.coerceIn(FONT_SCALE_MIN_PERCENT, FONT_SCALE_MAX_PERCENT) / 100f
-            return (9.5f + 34.5f * scale).roundToInt().coerceIn(32, 64)
-        }
+        fun compactMinimumHeightDp(percent: Int, mode: String = CompactOverlayOptions.AUTO): Int =
+            CompactOverlayOptions.minimumHeightDp(percent, mode)
         private const val LOG_TAG = "DesktopLyrics"
         private const val CHANNEL_ID = "lobsta_lyrics_overlay"
         private const val COMPACT_MAX_HEIGHT_DP = 130
